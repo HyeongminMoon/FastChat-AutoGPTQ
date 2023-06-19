@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 import requests
 
 from fastchat.modules.gptq import GptqConfig
+from auto_gptq import BaseQuantizeConfig
 
 try:
     from transformers import (
@@ -76,6 +77,7 @@ class ModelWorker:
         load_8bit=False,
         cpu_offloading=False,
         gptq_config=None,
+        autogptq=False,
     ):
         self.controller_addr = controller_addr
         self.worker_addr = worker_addr
@@ -94,6 +96,7 @@ class ModelWorker:
             load_8bit,
             cpu_offloading,
             gptq_config,
+            autogptq,
         )
         self.conv = get_conversation_template(model_path)
         if self.tokenizer.pad_token == None:
@@ -442,12 +445,19 @@ if __name__ == "__main__":
             )
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
 
-    gptq_config = GptqConfig(
-        ckpt=args.gptq_ckpt or args.model_path,
-        wbits=args.gptq_wbits,
-        groupsize=args.gptq_groupsize,
-        act_order=args.gptq_act_order,
-    )
+    if args.autogptq:
+        gptq_config = BaseQuantizeConfig(
+            bits=args.gptq_wbits,
+            group_size=args.gptq_groupsize,
+            desc_act=args.gptq_act_order,
+        )
+    else:
+        gptq_config = GptqConfig(
+            ckpt=args.gptq_ckpt or args.model_path,
+            wbits=args.gptq_wbits,
+            groupsize=args.gptq_groupsize,
+            act_order=args.gptq_act_order,
+        )
 
     worker = ModelWorker(
         args.controller_address,
@@ -462,5 +472,6 @@ if __name__ == "__main__":
         args.load_8bit,
         args.cpu_offloading,
         gptq_config,
+        args.autogptq,
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")

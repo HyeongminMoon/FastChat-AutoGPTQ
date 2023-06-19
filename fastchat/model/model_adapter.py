@@ -25,6 +25,7 @@ from transformers import (
 )
 
 from fastchat.modules.gptq import GptqConfig, load_gptq_quantized
+from fastchat.modules.autogptq import load_autogptq_quantized
 from fastchat.conversation import Conversation, get_conv_template
 from fastchat.model.compression import load_compress_model
 from fastchat.model.monkey_patch_non_inplace import (
@@ -119,6 +120,7 @@ def load_model(
     load_8bit: bool = False,
     cpu_offloading: bool = False,
     gptq_config: Optional[GptqConfig] = None,
+    autogptq: bool = False,
     revision: str = "main",
     debug: bool = False,
 ):
@@ -188,6 +190,12 @@ def load_model(
                 torch_dtype=kwargs["torch_dtype"],
                 revision=revision,
             )
+    elif autogptq and gptq_config.bits < 16:
+        return load_autogptq_quantized(
+            model_path,
+            gptq_config,
+            device=device,
+        )
     elif gptq_config and gptq_config.wbits < 16:
         return load_gptq_quantized(
             model_path,
@@ -282,6 +290,11 @@ def add_model_args(parser):
         "--gptq-act-order",
         action="store_true",
         help="Whether to apply the activation order GPTQ heuristic",
+    )
+    parser.add_argument(
+        "--autogptq",
+        action="store_true",
+        help="Use AutoGPTQ loader instead of GPTQ-for-LLaMa",
     )
 
 
