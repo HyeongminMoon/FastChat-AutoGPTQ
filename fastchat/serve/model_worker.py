@@ -45,7 +45,7 @@ from fastchat.model.model_adapter import (
 )
 from fastchat.model.chatglm_model import chatglm_generate_stream
 from fastchat.model.falcon_model import falcon_generate_stream
-from fastchat.serve.inference import generate_stream
+from fastchat.serve.inference import generate_stream, stop_event
 from fastchat.utils import build_logger, pretty_print_semaphore
 
 GB = 1 << 30
@@ -237,6 +237,10 @@ class ModelWorker:
             }
             yield json.dumps(ret).encode() + b"\0"
 
+    def stop_stream(self):
+        logger.info("'stop_stream' has been called")
+        stop_event.set()
+
     def generate_gate(self, params):
         try:
             ret = {"text": "", "error_code": 0}
@@ -364,6 +368,9 @@ async def api_generate_stream(request: Request):
     background_tasks = create_background_tasks()
     return StreamingResponse(generator, background=background_tasks)
 
+@app.post("/worker_stop_stream")
+async def api_get_status(request: Request):
+    return worker.stop_stream()
 
 @app.post("/worker_generate")
 async def api_generate(request: Request):
