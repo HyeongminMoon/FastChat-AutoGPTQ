@@ -190,16 +190,22 @@ def flag_last_response(state, model_selector, request: gr.Request):
     return ("",) + (disable_btn,) * 3
 
 
+def stop_response(state, model_selector, request: gr.Request): 
+    logger.info(f"stop. ip: {request.client.host}")
+    _ = requests.post(state.worker_addr + "/worker_stop_stream", timeout=5)
+    return ("",) + (disable_btn,)
+
+
 def regenerate(state, request: gr.Request):
     logger.info(f"regenerate. ip: {request.client.host}")
     state.conv.update_last_message(None)
-    return (state, state.to_gradio_chatbot(), "") + (disable_btn,) * 5
+    return (state, state.to_gradio_chatbot(), "") + (disable_btn,) * 6
 
 
 def clear_history(request: gr.Request):
     logger.info(f"clear_history. ip: {request.client.host}")
     state = None
-    return (state, [], "") + (disable_btn,) * 5
+    return (state, [], "") + (disable_btn,) * 6
 
 
 def add_text(state, model_selector, text, request: gr.Request):
@@ -211,12 +217,12 @@ def add_text(state, model_selector, text, request: gr.Request):
 
     if len(text) <= 0:
         state.skip_next = True
-        return (state, state.to_gradio_chatbot(), "") + (no_change_btn,) * 5
+        return (state, state.to_gradio_chatbot(), "") + (no_change_btn,) * 6
 
     if ip_expiration_dict[ip] < time.time():
         logger.info(f"inactive. ip: {request.client.host}. text: {text}")
         state.skip_next = True
-        return (state, state.to_gradio_chatbot(), INACTIVE_MSG) + (no_change_btn,) * 5
+        return (state, state.to_gradio_chatbot(), INACTIVE_MSG) + (no_change_btn,) * 6
 
     if enable_moderation:
         flagged = violates_moderation(text)
@@ -225,7 +231,7 @@ def add_text(state, model_selector, text, request: gr.Request):
             state.skip_next = True
             return (state, state.to_gradio_chatbot(), MODERATION_MSG) + (
                 no_change_btn,
-            ) * 5
+            ) * 6
 
     conv = state.conv
     if (len(conv.messages) - conv.offset) // 2 >= CONVERSATION_TURN_LIMIT:
@@ -233,12 +239,12 @@ def add_text(state, model_selector, text, request: gr.Request):
         state.skip_next = True
         return (state, state.to_gradio_chatbot(), CONVERSATION_LIMIT_MSG) + (
             no_change_btn,
-        ) * 5
+        ) * 6
 
     text = text[:INPUT_CHAR_LEN_LIMIT]  # Hard cut-off
     conv.append_message(conv.roles[0], text)
     conv.append_message(conv.roles[1], None)
-    return (state, state.to_gradio_chatbot(), "") + (disable_btn,) * 5
+    return (state, state.to_gradio_chatbot(), "") + (disable_btn,) * 6
 
 
 def post_process_code(code):
@@ -300,7 +306,7 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
     if state.skip_next:
         # This generate call is skipped due to invalid inputs
         state.skip_next = False
-        yield (state, state.to_gradio_chatbot()) + (no_change_btn,) * 5
+        yield (state, state.to_gradio_chatbot()) + (no_change_btn,) * 6
         return
 
     conv, model_name = state.conv, state.model_name
@@ -324,6 +330,7 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
             controller_url + "/get_worker_address", json={"model": model_name}
         )
         worker_addr = ret.json()["address"]
+        state.worker_addr = worker_addr
         logger.info(f"model_name: {model_name}, worker_addr: {worker_addr}")
 
         # No available worker
@@ -332,6 +339,7 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
             yield (
                 state,
                 state.to_gradio_chatbot(),
+                disable_btn,
                 disable_btn,
                 disable_btn,
                 disable_btn,
@@ -364,7 +372,7 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
         )
 
     conv.update_last_message("▌")
-    yield (state, state.to_gradio_chatbot()) + (disable_btn,) * 5
+    yield (state, state.to_gradio_chatbot()) + (disable_btn,) * 3 + (enable_btn,) + (disable_btn,) * 2
 
     try:
         for data in stream_iter:
@@ -373,11 +381,12 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
                 if "vicuna" in model_name:
                     output = post_process_code(output)
                 conv.update_last_message(output + "▌")
-                yield (state, state.to_gradio_chatbot()) + (disable_btn,) * 5
+                yield (state, state.to_gradio_chatbot()) + (disable_btn,) * 3 + (enable_btn,) + (disable_btn,) * 2
             else:
                 output = data["text"] + f"\n\n(error_code: {data['error_code']})"
                 conv.update_last_message(output)
                 yield (state, state.to_gradio_chatbot()) + (
+                    disable_btn,
                     disable_btn,
                     disable_btn,
                     disable_btn,
@@ -395,6 +404,7 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
             disable_btn,
             disable_btn,
             disable_btn,
+            disable_btn,
             enable_btn,
             enable_btn,
         )
@@ -408,6 +418,7 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
             disable_btn,
             disable_btn,
             disable_btn,
+            disable_btn,
             enable_btn,
             enable_btn,
         )
@@ -415,7 +426,8 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
 
     # Delete "▌"
     conv.update_last_message(conv.messages[-1][-1][:-1])
-    yield (state, state.to_gradio_chatbot()) + (enable_btn,) * 5
+    state.worker_addr = None
+    yield (state, state.to_gradio_chatbot()) + (enable_btn,) * 3 + (disable_btn,) + (enable_btn,) * 2
 
     finish_tstamp = time.time()
     logger.info(f"{output}")
@@ -533,6 +545,7 @@ By using this service, users are required to agree to the following terms: The s
         upvote_btn = gr.Button(value="👍  Upvote", interactive=False)
         downvote_btn = gr.Button(value="👎  Downvote", interactive=False)
         flag_btn = gr.Button(value="⚠️  Flag", interactive=False)
+        stop_btn = gr.Button(value="⏹️  Stop Generation", interactive=False)
         regenerate_btn = gr.Button(value="🔄  Regenerate", interactive=False)
         clear_btn = gr.Button(value="🗑️  Clear history", interactive=False)
 
@@ -565,7 +578,7 @@ By using this service, users are required to agree to the following terms: The s
     gr.Markdown(learn_more_md)
 
     # Register listeners
-    btn_list = [upvote_btn, downvote_btn, flag_btn, regenerate_btn, clear_btn]
+    btn_list = [upvote_btn, downvote_btn, flag_btn, stop_btn, regenerate_btn, clear_btn]
     upvote_btn.click(
         upvote_last_response,
         [state, model_selector],
@@ -580,6 +593,11 @@ By using this service, users are required to agree to the following terms: The s
         flag_last_response,
         [state, model_selector],
         [textbox, upvote_btn, downvote_btn, flag_btn],
+    )
+    stop_btn.click(
+        stop_response,
+        [state, model_selector],
+        [textbox, stop_btn]
     )
     regenerate_btn.click(regenerate, state, [state, chatbot, textbox] + btn_list).then(
         bot_response,

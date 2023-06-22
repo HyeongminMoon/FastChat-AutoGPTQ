@@ -6,6 +6,7 @@ from typing import Iterable, Optional
 import sys
 import time
 import warnings
+import threading
 
 import psutil
 import torch
@@ -34,6 +35,7 @@ from fastchat.model.falcon_model import falcon_generate_stream
 from fastchat.modules.gptq import GptqConfig
 from fastchat.utils import is_partial_stop
 
+stop_event = threading.Event()
 
 def prepare_logits_processor(
     temperature: float, repetition_penalty: float, top_p: float, top_k: int
@@ -188,6 +190,11 @@ def generate_stream(
                 else:
                     raise ValueError("Invalid stop field type.")
 
+            # stop stream
+            if stop_event.is_set():
+                stop_event.clear()
+                break
+                    
             # prevent yielding partial stop sequence
             if not partially_stopped:
                 yield {
